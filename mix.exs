@@ -16,7 +16,7 @@ defmodule MockServer.Mixfile do
   def application do
     [
       applications: [:logger],
-      mod: {MockServer, []}
+      mod: {MockServer.App, []}
     ]
   end
 
