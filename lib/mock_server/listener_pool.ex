@@ -66,6 +66,13 @@ defmodule MockServer.ListenerPool do
     :ok = GenServer.call(__MODULE__, {:free, port})
   end
 
+  @doc false
+  # Get a count of the number of available listeners. This is used for testing.
+  @spec count() :: non_neg_integer
+  def count() do
+    GenServer.call(__MODULE__, :count)
+  end
+
   # --- GenServer callbacks ---
 
   use GenServer
@@ -112,6 +119,13 @@ defmodule MockServer.ListenerPool do
         {:reply, :ok, pool}
       _ -> {:reply, {:error, :no_port}, pool}
     end
+  end
+
+  @doc false
+  @spec handle_call(:count, term, pool_state) :: {:reply, non_neg_integer, pool_state}
+  def handle_call(:count, _from, pool) do
+    count = Enum.count(pool, fn %{state: state} -> state == :free end)
+    {:reply, count, pool}
   end
 
   @doc false

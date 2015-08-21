@@ -25,13 +25,23 @@ defmodule ListenerPoolTest do
     # Start the pool
     {:ok, _pool} = T.start_link(H.ports())
 
+    # Check the count of listeners in the pool
+    listener_count = H.port_count()
+    assert ^listener_count = T.count()
+
     # Try and get a listener and port number
     assert {:ok, {port, listener}} = T.bind()
     assert port in H.ports()
     assert H.is_socket(listener)
 
+    # Check the listener count again
+    assert (listener_count - 1) == T.count()
+
     # Try and release a port number
     assert :ok == T.free(port)
+
+    # Check the listener count one last time
+    assert ^listener_count = T.count()
 
     # Stop the pool
     :ok = T.stop()
@@ -56,6 +66,10 @@ defmodule ListenerPoolTest do
     server_count = H.port_count() * 2
     monitors = for _i <- 1..server_count, do: spawn_monitor(faux_worker)
 
+    # Make sure that we've drained the listener pool.
+    :timer.sleep(5)
+    assert 0 == T.count()
+
     # Wait for the 'workers' to finish up.
     finished_workers = for _monitor <- monitors do
       receive do
@@ -71,6 +85,9 @@ defmodule ListenerPoolTest do
       refute Process.alive?(pid)
     end)
     assert Enum.sort(started_workers) == Enum.sort(finished_workers)
+
+    # Make sure the pool is full again.
+    assert H.port_count() == T.count()
 
     # Stop the pool
     :ok = T.stop()
