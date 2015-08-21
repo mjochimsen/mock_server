@@ -1,7 +1,7 @@
 defmodule MockServer do
   use Application
 
-  @mock_server_ports Application.fetch_env(:mock_server, :ports)
+  @mock_server_ports Application.get_env(:mock_server, :ports, :no_ports)
 
   @doc """
   Start the `MockServer` application supervisor. This just starts the processes
@@ -16,9 +16,12 @@ defmodule MockServer do
   configuration under the `:ports` key. The key value can be a single port
   number, a range of port numbers, or a list of port numbers.
   """
-  def start(_type, _args) do
-    children = []
+  def start(_type, []) do
+    import Supervisor.Spec
 
+    children = [
+      worker(__MODULE__.ListenerPool, [@mock_server_ports]),
+    ]
     opts = [strategy: :one_for_one, name: __MODULE__.Supervisor]
     Supervisor.start_link(children, opts)
   end
