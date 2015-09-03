@@ -37,8 +37,8 @@ defmodule MockServer.MockData do
 
   ### Data format ###
 
-  Mock data can be stored in one of three formats: text, hexadecimal encoded binary,
-  or base64 encoded binary.
+  Mock data can be stored in one of three formats: text, hexadecimal encoded
+  binary, or base64 encoded binary.
 
   #### Text data ####
 
@@ -69,6 +69,11 @@ defmodule MockServer.MockData do
 
   Base64 encoded data is expected to be used for larger blocks of data, though
   it may be equally well used for smaller blocks.
+
+  ### Comments and whitespace ###
+
+  Leading whitespace is always ignored, as are any lines which begin with '`#`'
+  (the '`#`' may be prefaced by whitespace). Inline comments are not permitted.
 
   ### Examples ###
 
@@ -102,20 +107,27 @@ defmodule MockServer.MockData do
   An example of a POP3 exchange:
 
       S:+OK POP3 server ready
+
+      # Send the user and password
       C:USER alice
       S:+OK alice has a maildrop
       C:PASS rabbitHole
       S:+OK maildrop has 2 messages
+
+      # List the messages in the mailbox
       C:LIST
       S:+OK 2 messages (320 octets)
       S:1 120
       S:2 200
       S:.
+
+      # End the connection
       C:QUIT
       S:+OK POP3 server signing off
 
   And finally, an HTTP exchange.
 
+      # Get an image from the server, and keep the connection open
       C:GET /images/stub.png HTTP/1.1
       C:Host: www.example.com
       C:
@@ -133,6 +145,9 @@ defmodule MockServer.MockData do
       iVBORw0KGgoAAAANSUhEUgAAAAoAAAA8CAIAAADQc7xaAAAAHUlEQVQ4EWNgGAWjITAaAqMhMB
       oCoyEwGgLkhAAAB0QAAXLs01kAAAAASUVORK5CYII=
       .
+
+      # Get a missing image from the server, and close the connection after
+      # getting the 404 for the image.
       C:GET /images/stub.gif HTTP/1.1
       C:Host: www.example.com
       C:
@@ -158,7 +173,9 @@ defmodule MockServer.MockData do
   @doc """
   Load mock data using either an atom, stream of lines, list of lines, or a
   string. The data will be parsed and turned into a list of
-  `{:server | :client, data}` tuples.
+  `{:server | :client, data}` tuples. If an error is encountered in parsing,
+  the a `{:error, reason, lineno}` tuple will be returned in the list at the
+  location the error was encountered.
 
   If the mock data is specified using an atom, then the data will be sought in a
   file with the atom name suffixed with `".mock"` in the mock file path. Thus:
@@ -191,20 +208,25 @@ defmodule MockServer.MockData do
   is either `:server` or `:client` and the `data` is a binary to be sent or
   received.
 
-  If the line cannot be parsed, then `{:error, line_number}` is returned in the
-  list.
+  If the line cannot be parsed, then `{:error, reason, line_number}` is returned
+  in the list.
   """
   @spec parse([String.t]) :: [t]
-  def parse(lines), do: parse_lines([], lines, 1)
-  defp parse_lines(messages, [], _), do: Enum.reverse(messages)
-  defp parse_lines(messages, lines, lineno) do
+  def parse(lines) do
+    lines
+      |> Enum.map(&String.lstrip/1)
+      |> Enum.reject(&is_comment?/1)
+      |> parse_lines([], 1)
+  end
+  defp parse_lines([], messages, _), do: Enum.reverse(messages)
+  defp parse_lines(lines, messages, lineno) do
     case parse_message(lines) do
       {:ok, direction, data, line_count} ->
-        parse_lines([{direction, data} | messages],
-                    Enum.drop(lines, line_count), lineno + line_count)
+        parse_lines(Enum.drop(lines, line_count),
+                    [{direction, data} | messages], lineno + line_count)
       {:error, reason, line_count} ->
-        parse_lines([{:error, reason, lineno} | messages],
-                    Enum.drop(lines, line_count), lineno + line_count)
+        parse_lines(Enum.drop(lines, line_count),
+                    [{:error, reason, lineno} | messages], lineno + line_count)
     end
   end
   defp parse_message([line | rest]) do
@@ -241,16 +263,22 @@ defmodule MockServer.MockData do
     {:ok, data}
   end
   defp parse_hex(byte_list, <<hex :: bytes-size(2), rest :: binary>>) do
-    if Regex.match?(~r/^[0-9a-fA-F]{2}$/, hex) do
-      parse_hex([String.to_integer(hex, 16) | byte_list], rest)
-    else
-      {:error, :bad_hexadecimal}
+    try do
+      byte = String.to_integer(hex, 16)
+      parse_hex([byte | byte_list], rest)
+    rescue
+      ArgumentError -> {:error, :bad_hexadecimal}
     end
   end
   defp parse_hex(_byte_list, _hexstring) do
     {:error, :bad_hexadecimal}
   end
-  defp parse_base64([next | rest], base64 \\ []) do
+  defp parse_base64(lines, base64 \\ [])
+  defp parse_base64([], base64) do
+    line_count = Enum.count(base64)
+    {:error, :bad_base64, line_count}
+  end
+  defp parse_base64([next | rest], base64) do
     if String.ends_with?(next, ".") do
       lines = [String.rstrip(next, ?.) | base64] |> Enum.reverse
       line_count = Enum.count(lines)
@@ -264,6 +292,9 @@ defmodule MockServer.MockData do
     else
       parse_base64(rest, [next | base64])
     end
+  end
+  defp is_comment?(line) do
+    String.starts_with?(line, "#") || line == ""
   end
   defp clean_eol(line) do
     line |> String.strip(?\n) |> String.strip(?\r)
