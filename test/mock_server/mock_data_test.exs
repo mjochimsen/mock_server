@@ -168,30 +168,32 @@ defmodule MockDataTest do
   end
 
   test "loading mock data from various sources" do
+    pop3_messages = [
+      server: "+OK POP3 server ready\r\n",
+      client: "QUIT\r\n",
+      server: "+OK POP3 server signing off\r\n",
+    ]
+
     # Test loading mock data from a list of lines.
     pop3_lines = ~t{
       S:+OK POP3 server ready
       C:QUIT
       S:+OK POP3 server signing off
     }
-    pop3_messages = [
-      server: "+OK POP3 server ready\r\n",
-      client: "QUIT\r\n",
-      server: "+OK POP3 server signing off\r\n",
-    ]
-    assert T.load(pop3_lines) == pop3_messages
-
-    # Test loading mock data from a stream.
-    pop3_stream = Stream.unfold(pop3_lines,
-                                fn [] -> nil; [next | rest] -> {next, rest} end)
-    assert T.load(pop3_stream) == pop3_messages
+    mock_stream = T.load(pop3_lines)
+    assert is_function(mock_stream)
+    assert Enum.to_list(mock_stream) == pop3_messages
 
     # Test loading mock data from a binary.
     pop3_text = Enum.join(pop3_lines, "\n")
-    assert T.load(pop3_text) == pop3_messages
+    mock_stream = T.load(pop3_text)
+    assert is_function(mock_stream)
+    assert Enum.to_list(mock_stream) == pop3_messages
 
     # Test loading mock data from a file.
-    assert T.load(:trivial_pop3) == pop3_messages
+    mock_stream = T.load(:trivial_pop3)
+    assert is_function(mock_stream)
+    assert Enum.to_list(mock_stream) == pop3_messages
   end
 
   defp sigil_t(text, _opts) do

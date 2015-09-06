@@ -169,13 +169,13 @@ defmodule MockServer.MockData do
   """
 
   @type t :: {:server, binary} | {:client, binary}
+  @type mock_source :: atom | String.t | [String.t]
 
   @doc """
-  Load mock data using either an atom, stream of lines, list of lines, or a
-  string. The data will be parsed and turned into a list of
-  `{:server | :client, data}` tuples. If an error is encountered in parsing,
-  the a `{:error, reason, lineno}` tuple will be returned in the list at the
-  location the error was encountered.
+  Load mock data using either an atom, list of lines, or a string. The data will
+  be parsed and turned into a stream of `{:server | :client, data}` tuples. If
+  an error is encountered in parsing, an `{:error, reason, lineno}` tuple will
+  be returned in the stream at the location the error was encountered.
 
   If the mock data is specified using an atom, then the data will be sought in a
   file with the atom name suffixed with `".mock"` in the mock file path. Thus:
@@ -186,20 +186,20 @@ defmodule MockServer.MockData do
 
   If a string is given it will be broken into lines at LF or CRLF markers.
   """
-  @spec load(atom | String.t | Stream.t | [String.t]) :: [t]
+  @spec load(mock_source) :: Enumerable.t
   def load(name) when is_atom(name) do
     {:ok, pathname} = pathname(name)
-    File.stream!(pathname, [:read], :line) |> load()
+    File.read!(pathname) |> load
   end
   def load(data) when is_binary(data) do
-    String.split(data, ~r/\r?\n/) |> load()
+    String.split(data, ~r/\r?\n/) |> load
   end
   def load(lines) when is_list(lines) do
-    Enum.map(lines, &clean_eol/1) |> parse
+    Enum.map(lines, &clean_eol/1) |> parse |> Stream.unfold(&stream_generator/1)
   end
-  def load(stream) do
-    Enum.to_list(stream) |> load()
-  end
+
+  defp stream_generator([]), do: nil
+  defp stream_generator([head | tail]), do: {head, tail}
 
   @doc """
   Parse a list of lines into a list of `{direction, data}` tuples. The lines
