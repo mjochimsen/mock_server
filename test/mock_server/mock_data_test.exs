@@ -92,112 +92,61 @@ defmodule MockDataTest do
   test "parsing invalid mock data" do
     # Test parsing mock data without a ":" or ">"
     assert T.parse(~t{
-      C]bad
-      S|leaders
-    }) == [
-      {:error, :bad_leader, 1},
-      {:error, :bad_leader, 2},
-    ]
+      # Bad leader ahead
+      C]bad leader
+    }) == {:error, :bad_leader, 2}
 
     # Test parsing mock data which does not start with a "S" or "C"
     assert T.parse(~t{
-      A:bad
-      R:leaders
-    }) == [
-      {:error, :bad_leader, 1},
-      {:error, :bad_leader, 2},
-    ]
+      # Eata not from client or server
+      E:send to everyone
+    }) == {:error, :bad_leader, 2}
 
     # Test parsing binary mock data with a separator
     assert T.parse(~t{
-      C00>0a0b0c
+      # What good is a separator with binary data?
       S00>A0B0C0
-    }) == [
-      {:error, :bad_leader, 1},
-      {:error, :bad_leader, 2},
-    ]
+    }) == {:error, :bad_leader, 2}
 
     # Test parsing text data with an invalid separator
     assert T.parse(~t{
+      # Separators must be paired hex values.
       C999:hello
-      S999:there
-    }) == [
-      {:error, :bad_hexadecimal, 1},
-      {:error, :bad_hexadecimal, 2},
-    ]
+    }) == {:error, :bad_hexadecimal, 2}
     assert T.parse(~t{
+      # Separators must be hex strings, not whatever this is.
       C0q:hello
-      Sq0:there
-    }) == [
-      {:error, :bad_hexadecimal, 1},
-      {:error, :bad_hexadecimal, 2},
-    ]
+    }) == {:error, :bad_hexadecimal, 2}
 
     # Test parsing invalid hexadecimal data
     assert T.parse(~t{
-      C>0a0b0
+      # Binary hexadecimal data must have an even number of characters.
       S>A0B0C
-    }) == [
-      {:error, :bad_hexadecimal, 1},
-      {:error, :bad_hexadecimal, 2},
-    ]
+    }) == {:error, :bad_hexadecimal, 2}
     assert T.parse(~t{
-      C>0g
+      # Binary hexadecimal data can only use hex digits.
       S>G0
-    }) == [
-      {:error, :bad_hexadecimal, 1},
-      {:error, :bad_hexadecimal, 2},
-    ]
+    }) == {:error, :bad_hexadecimal, 2}
 
     # Test parsing invalid base64 data
     assert T.parse(~t{
+      # This base64 data has an invalid character.
       C>
       8rjA3fo$.
-      S>
-      odf23.
-    }) == [
-      {:error, :bad_base64, 1},
-      {:error, :bad_base64, 3},
-    ]
+    }) == {:error, :bad_base64, 2}
     assert T.parse(~t{
+      # This base64 data lacks a terminating period.
       C>
       8rjA3fo2
-    }) == [
-      {:error, :bad_base64, 1},
-    ]
+    }) == {:error, :bad_base64, 2}
   end
 
-  test "loading mock data from various sources" do
-    pop3_messages = [
-      server: "+OK POP3 server ready\r\n",
-      client: "QUIT\r\n",
-      server: "+OK POP3 server signing off\r\n",
-    ]
-
-    # Test loading mock data from a list of lines.
-    pop3_lines = ~t{
-      S:+OK POP3 server ready
-      C:QUIT
-      S:+OK POP3 server signing off
-    }
-    mock_stream = T.load(pop3_lines)
-    assert is_function(mock_stream)
-    assert Enum.to_list(mock_stream) == pop3_messages
-
-    # Test loading mock data from a binary.
-    pop3_text = Enum.join(pop3_lines, "\n")
-    mock_stream = T.load(pop3_text)
-    assert is_function(mock_stream)
-    assert Enum.to_list(mock_stream) == pop3_messages
-
-    # Test loading mock data from a file.
-    mock_stream = T.load(:trivial_pop3)
-    assert is_function(mock_stream)
-    assert Enum.to_list(mock_stream) == pop3_messages
+  defp sigil_t(str, []) do
+    lines = String.split(str, ~r/\r?\n/)
+    if List.first(lines) |> empty_line?, do: lines = Enum.drop(lines, 1)
+    if List.last(lines) |> empty_line?, do: lines = Enum.drop(lines, -1)
+    lines |> Enum.join("\n")
   end
-
-  defp sigil_t(text, _opts) do
-    String.split(text, ~r/\r?\n/)
-  end
+  defp empty_line?(line), do: String.match?(line, ~r/^\s*$/)
 
 end

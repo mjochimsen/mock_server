@@ -2,7 +2,7 @@ defmodule MockServer.MockData do
 
   @moduledoc """
   Provides functions to convert mock files located in the mock file path into
-  linst of data ready to be used by a `MockServer`.
+  lists of mock data ready to be used by a `MockServerFeed`.
 
   ## Configuration ##
 
@@ -11,29 +11,26 @@ defmodule MockServer.MockData do
   `config.exs`:
 
       config :mock_server,
-        path: /a/path/to/mock/data
+        path: a/path/to/mock/data
 
-  The default location for the mock file path is `test/mocks`; this means that
-  when `MockServer` is used for testing the mock files should be placed under a
-  `mocks` subdirectory of the project test directory. If this is where the mock
-  files are located there is no need to include a path in the application
-  configuration.
+  The default location for the mock file path is `test/mocks`.
 
   ## Mock File Format ##
 
   Mock files are stored in a line based format. Each line is preceeded by a
-  leader, which describes the direction of the data flow and the format of the
-  data, followed by the data to be sent or received.
+  leader, which describes the sender and format of the data, followed by the
+  data to be sent.
 
   ### Flow direction ###
 
-  Mock data can either be sent from the `MockServer`, or be received by it. Data
-  sent from the server is indicated by a leader starting with '`S`', while data
-  recieved by the server is indicated by a leader starting with '`C`'. While the
-  sent data (server data) is exactly what the server will send, the received
-  data (client data) may or may not match what the server actually receives. If
-  there is a mismatch between the expected data and the received data then the
-  server will terminate (see the `MockServer` documentation for details).
+  Mock data can either be sent from a server or a client. If the data is sent by
+  a server then the `MockServer` will send it, if it is sent by a client then
+  the `MockServer` will expect to receive it. Data sent from the server is
+  indicated by a leader starting with '`S`', while data sent by the client is
+  indicated by a leader starting with '`C`'. If there is a mismatch between the
+  data the `MockServer` expects to receive (marked with '`C`') and the data the
+  `MockServer` actually receives then the `MockServer` will terminate (see the
+  `MockServer` documentation for details).
 
   ### Data format ###
 
@@ -42,12 +39,12 @@ defmodule MockServer.MockData do
 
   #### Text data ####
 
-  Text data is stored on a line which starts with a '`:`' following the leading
-  '`S`' or '`C`', which an optional hexadecimal encoded line separator between
-  the two characters. The data will continue to the end of the line, and should
-  be purely 7-bit ASCII. The end of the line can be either a LF character or a
-  CRLF pair. Either way, the end of line marker will be removed from the text,
-  and replaced by the line separator octets. If no hexadecimal encoded line
+  Text data is stored on a line which has a '`:`' following the leading '`S`' or
+  '`C`', with an optional hexadecimal encoded line separator between the two
+  characters. The data will continue to the end of the line, and should be
+  purely 7-bit ASCII. The end of the line can be either a LF character or a CRLF
+  pair. Either way, the end of line marker will be removed from the text, and
+  replaced by the line separator octets. If no hexadecimal encoded line
   separator is specified a CRLF is used.
 
   #### Hexadecimal encoded binary data ####
@@ -69,6 +66,9 @@ defmodule MockServer.MockData do
 
   Base64 encoded data is expected to be used for larger blocks of data, though
   it may be equally well used for smaller blocks.
+
+  For information about the encoding of base64 data, see the `:base64` module
+  documetation in the Erlang standard library (stdlib).
 
   ### Comments and whitespace ###
 
@@ -169,141 +169,144 @@ defmodule MockServer.MockData do
   """
 
   @type t :: {:server, binary} | {:client, binary}
-  @type mock_source :: atom | String.t | [String.t]
+  @type parse_error :: {:error, :bad_leader |
+                                :bad_hexadecimal |
+                                :bad_base64, non_neg_integer}
 
   @doc """
-  Load mock data using either an atom, list of lines, or a string. The data will
-  be parsed and turned into a stream of `{:server | :client, data}` tuples. If
-  an error is encountered in parsing, an `{:error, reason, lineno}` tuple will
-  be returned in the stream at the location the error was encountered.
+  Parse a textual binary containing a series of lines into a list of `{sender,
+  data}` tuples. The lines in the binary are formatted as described in the
+  module docs, and are converted into a series of tuples where the `sender` is
+  either `:server` or `:client` and the `data` is the binary to be sent by the
+  `sender`.
 
-  If the mock data is specified using an atom, then the data will be sought in a
-  file with the atom name suffixed with `".mock"` in the mock file path. Thus:
-
-      MockServer.MockData.load(:sample)
-
-  will attempt to load data from a file named `"sample.mock"` in the mock path.
-
-  If a string is given it will be broken into lines at LF or CRLF markers.
+  If an error occurs while parsing then `{:error, reason, line_number}` is
+  returned.
   """
-  @spec load(mock_source) :: Enumerable.t
-  def load(name) when is_atom(name) do
-    {:ok, pathname} = pathname(name)
-    File.read!(pathname) |> load
-  end
-  def load(data) when is_binary(data) do
-    String.split(data, ~r/\r?\n/) |> load
-  end
-  def load(lines) when is_list(lines) do
-    Enum.map(lines, &clean_eol/1) |> parse |> Stream.unfold(&stream_generator/1)
-  end
-
-  defp stream_generator([]), do: nil
-  defp stream_generator([head | tail]), do: {head, tail}
-
-  @doc """
-  Parse a list of lines into a list of `{direction, data}` tuples. The lines
-  are formatted as described in the module docs (with the trailing EOL markers
-  stripped), and are converted into a series of tuples where the `direction`
-  is either `:server` or `:client` and the `data` is a binary to be sent or
-  received.
-
-  If the line cannot be parsed, then `{:error, reason, line_number}` is returned
-  in the list.
-  """
-  @spec parse([String.t]) :: [t]
-  def parse(lines) do
-    lines
+  @spec parse(String.t) :: [t] | parse_error
+  def parse(mock_data) do
+    mock_data
+      |> String.split(~r/\r?\n/)
       |> Enum.map(&String.lstrip/1)
+      |> apply_lineno()
       |> Enum.reject(&is_comment?/1)
-      |> parse_lines([], 1)
+      |> parse_lines([])
   end
-  defp parse_lines([], messages, _), do: Enum.reverse(messages)
-  defp parse_lines(lines, messages, lineno) do
+
+  defp apply_lineno(lines) do
+    {numbered_lines, _line_count} =
+      Enum.map_reduce(lines, 1, fn line, lineno ->
+                                  {{line, lineno}, lineno + 1}
+                                end)
+    numbered_lines
+  end
+
+  defp is_comment?({line, _lineno}) do
+    String.starts_with?(line, "#") || line == ""
+  end
+
+  defp parse_lines([], messages), do: Enum.reverse(messages)
+  defp parse_lines(lines, messages) do
     case parse_message(lines) do
-      {:ok, direction, data, line_count} ->
-        parse_lines(Enum.drop(lines, line_count),
-                    [{direction, data} | messages], lineno + line_count)
-      {:error, reason, line_count} ->
-        parse_lines(Enum.drop(lines, line_count),
-                    [{:error, reason, lineno} | messages], lineno + line_count)
+      {:ok, sender, data, line_count} ->
+        parse_lines(Enum.drop(lines, line_count), [{sender, data} | messages])
+      {:error, reason} ->
+        [{_line, lineno} | _rest] = lines
+        {:error, reason, lineno}
     end
   end
-  defp parse_message([line | rest]) do
+
+  defp parse_message([{line, _lineno} | rest]) do
     case Regex.run(~r/^(S|C)(.*)(:|>)(.*)$/, line) do
       [_, "S", sep, ":", data] -> parse_text(:server, sep, data)
       [_, "C", sep, ":", data] -> parse_text(:client, sep, data)
-      [_, "S", "", ">", data]  -> parse_binary(:server, [data | rest])
-      [_, "C", "", ">", data]  -> parse_binary(:client, [data | rest])
-      _                        -> {:error, :bad_leader, 1}
+      [_, "S", "", ">", ""]    -> parse_base64(:server, rest)
+      [_, "C", "", ">", ""]    -> parse_base64(:client, rest)
+      [_, "S", "", ">", data]  -> parse_hexadecimal(:server, data)
+      [_, "C", "", ">", data]  -> parse_hexadecimal(:client, data)
+      _                        -> {:error, :bad_leader}
     end 
   end
-  defp parse_text(direction, "", data), do: parse_text(direction, "0D0A", data)
-  defp parse_text(direction, sep, data) do
-    case parse_hex(sep) do
-      {:ok, separator} -> {:ok, direction, data <> separator, 1}
-      {:error, reason} -> {:error, reason, 1}
+
+  defp parse_text(sender, "", data), do: parse_text(sender, "0D0A", data)
+  defp parse_text(sender, sep, data) do
+    case parse_hexstring(sep) do
+      {:ok, separator} -> {:ok, sender, data <> separator, 1}
+      {:error, reason} -> {:error, reason}
     end
   end
-  defp parse_binary(direction, ["" | lines]) do
-    case parse_base64(lines) do
-      {:ok, data, line_count}      -> {:ok, direction, data, line_count + 1}
-      {:error, reason, line_count} -> {:error, reason, line_count + 1}
-    end
-  end
-  defp parse_binary(direction, [hexstring | _rest]) do
-    case parse_hex(hexstring) do
-      {:ok, data}      -> {:ok, direction, data, 1}
-      {:error, reason} -> {:error, reason, 1}
-    end
-  end
-  defp parse_hex(byte_list \\ [], hexstring)
-  defp parse_hex(byte_list, "") do
-    data = byte_list |> Enum.reverse |> :erlang.list_to_binary
+
+  defp parse_hexstring(hexstring, bytes \\ [])
+  defp parse_hexstring("", bytes) do
+    data = bytes |> Enum.reverse |> :erlang.list_to_binary
     {:ok, data}
   end
-  defp parse_hex(byte_list, <<hex :: bytes-size(2), rest :: binary>>) do
+  defp parse_hexstring(<<hex :: bytes-size(2), rest :: binary>>, bytes) do
+    case parse_hex_byte(hex) do
+      {:error, reason} -> {:error, reason}
+      byte -> parse_hexstring(rest, [byte | bytes])
+    end
+  end
+  defp parse_hexstring(_hexstring, _byte_list) do
+    {:error, :bad_hexadecimal}
+  end
+
+  defp parse_hex_byte(hex) do
     try do
-      byte = String.to_integer(hex, 16)
-      parse_hex([byte | byte_list], rest)
+      String.to_integer(hex, 16)
     rescue
       ArgumentError -> {:error, :bad_hexadecimal}
     end
   end
-  defp parse_hex(_byte_list, _hexstring) do
-    {:error, :bad_hexadecimal}
-  end
-  defp parse_base64(lines, base64 \\ [])
-  defp parse_base64([], base64) do
-    line_count = Enum.count(base64)
-    {:error, :bad_base64, line_count}
-  end
-  defp parse_base64([next | rest], base64) do
-    if String.ends_with?(next, ".") do
-      lines = [String.rstrip(next, ?.) | base64] |> Enum.reverse
-      line_count = Enum.count(lines)
-      base64 = Enum.join(lines)
-      try do
-        {:ok, :base64.decode(base64), line_count}
-      rescue
-        ArgumentError -> {:error, :bad_base64, line_count}
-        MatchError -> {:error, :bad_base64, line_count}
+
+  defp parse_base64(sender, lines, base64_lines \\ [])
+  defp parse_base64(sender, [{line, _lineno} | rest], base64_lines) do
+    if String.ends_with?(line, ".") do
+      line_count = Enum.count(base64_lines) + 2
+      base64 = [String.rstrip(line, ?.) | base64_lines]
+                 |> Enum.reverse |> Enum.join
+      case decode_base64(base64) do
+        nil -> {:error, :bad_base64}
+        data -> {:ok, sender, data, line_count}
       end
     else
-      parse_base64(rest, [next | base64])
+      parse_base64(sender, rest, [line | base64_lines])
     end
   end
-  defp is_comment?(line) do
-    String.starts_with?(line, "#") || line == ""
+  defp parse_base64(_sender, [], _base64_lines) do
+    {:error, :bad_base64}
   end
-  defp clean_eol(line) do
-    line |> String.strip(?\n) |> String.strip(?\r)
+
+  defp decode_base64(base64) do
+    try do
+      :base64.decode(base64)
+    rescue
+      ArgumentError -> nil
+      MatchError -> nil
+    end
+  end
+
+  defp parse_hexadecimal(sender, hexstring) do
+    case parse_hexstring(hexstring) do
+      {:ok, data}      -> {:ok, sender, data, 1}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Get the pathname where mock files will be found. The path is set in the
+  application environment under the `:path` key. If no `:path` key is specified,
+  then `"test/mocks"` is used as a default value.
+  """
+  @spec mock_path() :: Path.t
+  def mock_path() do
+    Application.get_env(:mock_server, :path, Path.join("test", "mocks"))
   end
 
   @doc """
   Return the pathname corresponding to the given `name`. The name will have the
   suffix `".mock"` appended to it, and a file with this name will be sought in
-  the mock file path. If the file exists and is a regular file (or a symbolic
+  the mock file path. If such a file exists and is a regular file (or a symbolic
   link to one) then `{:ok, pathname}` will be returned. Otherwise,
   `{:error, :enoent}` will be returned.
   """
@@ -315,16 +318,6 @@ defmodule MockServer.MockData do
     else
       {:error, :enoent}
     end
-  end
-
-  @doc """
-  Get the pathname where mock files will be found. The path is set in the
-  application environment under the `:path` key. If no `:path` key is specified,
-  then `"tests/mock"` is used as a default value.
-  """
-  @spec mock_path() :: Path.t
-  def mock_path() do
-    Application.get_env(:mock_server, :path, Path.join("test", "mocks"))
   end
 
 end
