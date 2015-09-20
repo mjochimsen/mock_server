@@ -35,6 +35,7 @@ defmodule MockServer.MockDataFeed do
 
   # --- Types ---
 
+  @type t :: pid
   @type mock_source :: atom | String.t | [MockData.t]
 
   # --- API ---
@@ -49,7 +50,7 @@ defmodule MockServer.MockDataFeed do
   Note that this starts the data feed process without any data loaded. To load
   mock data into the data feed use `load/2`.
   """
-  @spec start_link() :: {:ok, pid}
+  @spec start_link() :: {:ok, t}
   def start_link() do
     GenServer.start_link(__MODULE__, [])
   end
@@ -61,21 +62,21 @@ defmodule MockServer.MockDataFeed do
   `MockData` module documentation or an atom identifying a mock data file in the
   mock data path.
   """
-  @spec load(pid, mock_source) :: :ok | MockData.parse_error
-  def load(pid, mock_file) when is_atom(mock_file) do
+  @spec load(t, mock_source) :: :ok | MockData.parse_error
+  def load(feed, mock_file) when is_atom(mock_file) do
     {:ok, mock_path} = MockData.pathname(mock_file)
     {:ok, mock_data} = File.read(mock_path)
-    load(pid, mock_data)
+    load(feed, mock_data)
   end
-  def load(pid, mock_data) when is_binary(mock_data) do
+  def load(feed, mock_data) when is_binary(mock_data) do
     case MockData.parse(mock_data) do
       {:error, reason, lineno} -> {:error, reason, lineno}
-      mocks -> load(pid, mocks)
+      mocks -> load(feed, mocks)
     end
   end
-  def load(pid, mocks) when is_list(mocks) do
+  def load(feed, mocks) when is_list(mocks) do
     case Enum.reject(mocks, &validate_mock_data/1) do
-      [] -> GenServer.call(pid, {:load, mocks})
+      [] -> GenServer.call(feed, {:load, mocks})
       [mock_error | _rest] -> {:error, :bad_mock, mock_error}
     end
   end
@@ -87,9 +88,9 @@ defmodule MockServer.MockDataFeed do
   @doc """
   Pull a mock data tuple from the `MockDataFeed` process.
   """
-  @spec pull(pid) :: MockData.t
-  def pull(pid) do
-    GenServer.call(pid, :pull)
+  @spec pull(t) :: MockData.t
+  def pull(feed) do
+    GenServer.call(feed, :pull)
   end
 
   @doc """
@@ -97,9 +98,9 @@ defmodule MockServer.MockDataFeed do
   are not removed from the process state (unlike `pull/1`). This function is
   primarily intended as a tool for debugging.
   """
-  @spec dump(pid) :: [MockData.t]
-  def dump(pid) do
-    GenServer.call(pid, :dump)
+  @spec dump(t) :: [MockData.t]
+  def dump(feed) do
+    GenServer.call(feed, :dump)
   end
 
   # --- GenServer callbacks ---
