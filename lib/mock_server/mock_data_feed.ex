@@ -50,6 +50,15 @@ defmodule MockServer.MockDataFeed do
   Note that this starts the data feed process without any data loaded. To load
   mock data into the data feed use `load/2`.
   """
+  @spec start() :: {:ok, t}
+  def start() do
+    GenServer.start(__MODULE__, [])
+  end
+
+  @doc """
+  Starts a mock data feed process linked to the caller. Aside from the linked
+  nature of the process, works just like `MockDataFeed.start/1`.
+  """
   @spec start_link() :: {:ok, t}
   def start_link() do
     GenServer.start_link(__MODULE__, [])
