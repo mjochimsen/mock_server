@@ -2,8 +2,6 @@ defmodule MockServer.App do
 
   use Application
 
-  @mock_server_ports Application.get_env(:mock_server, :ports, :no_ports)
-
   @doc """
   Start the `MockServer` application supervisor. This just starts the processes
   we need to work, in particular the `MockServer.ListenerPool` and
@@ -20,8 +18,9 @@ defmodule MockServer.App do
   def start(_type, []) do
     import Supervisor.Spec
 
+    mock_server_ports = Application.get_env(:mock_server, :ports, :no_ports)
     children = [
-      worker(MockServer.ListenerPool, [@mock_server_ports]),
+      worker(MockServer.ListenerPool, [mock_server_ports]),
       supervisor(MockServer.ServerSupervisor, [])
     ]
     opts = [strategy: :one_for_one, name: MockServer.Supervisor]
