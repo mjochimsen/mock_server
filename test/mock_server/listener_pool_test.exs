@@ -1,11 +1,14 @@
 defmodule ListenerPoolTest do
 
-  use ExUnit.Case
+  use ExUnit.Case, async: false
   alias MockServer.ListenerPool, as: T
   alias TestHelper, as: H
 
   setup_all do
     Application.stop(:mock_server)
+    on_exit(fn ->
+      Application.start(:mock_server)
+    end)
     :ok
   end
 

@@ -22,7 +22,7 @@ defmodule MockServer.App do
 
     children = [
       worker(MockServer.ListenerPool, [@mock_server_ports]),
-      supervisor(MockServer.FeedSupervisor, []),
+      supervisor(MockServer.ServerSupervisor, [])
     ]
     opts = [strategy: :one_for_one, name: MockServer.Supervisor]
     Supervisor.start_link(children, opts)

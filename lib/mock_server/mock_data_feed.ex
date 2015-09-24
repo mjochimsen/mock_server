@@ -97,7 +97,7 @@ defmodule MockServer.MockDataFeed do
   @doc """
   Pull a mock data tuple from the `MockDataFeed` process.
   """
-  @spec pull(t) :: MockData.t
+  @spec pull(t) :: MockData.t | :close
   def pull(feed) do
     GenServer.call(feed, :pull)
   end
