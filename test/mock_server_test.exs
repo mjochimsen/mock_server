@@ -7,7 +7,7 @@ defmodule MockServerTest do
   alias MockServer, as: T
 
   test "using a mock server with a mock file" do
-    assert {:ok, port} = T.start(:trivial_pop3, @timeout)
+    assert {:ok, port} = T.start(:trivial_pop3, @localhost, @timeout)
     assert {:ok, socket} = :gen_tcp.connect(@localhost, port,
                                             [active: false, mode: :binary],
                                             @timeout)

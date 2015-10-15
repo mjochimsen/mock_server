@@ -15,6 +15,7 @@ defmodule MockServer do
 
   @type socket :: :inet.socket
   @type mock_source :: atom | String.t | [MockData.t] | MockDataFeed.t
+  @type ip_address :: :inet.ip_address
   @type port_number :: :inet.port_number
 
   # --- API ---
@@ -29,10 +30,10 @@ defmodule MockServer do
   for   a connection and for data to be sent to it. By default it is set to
   `:infinity`.
   """
-  @spec start(mock_source, timeout) :: {:ok, port_number}
-  def start(mock, timeout \\ :infinity) do
+  @spec start(mock_source, ip_address, timeout) :: {:ok, port_number}
+  def start(mock, address, timeout \\ :infinity) do
     # Get port number and listener from pool
-    {:ok, {port_number, listen_socket}} = MockServer.ListenerPool.bind()
+    {:ok, {port_number, listen_socket}} = MockServer.ListenerPool.bind(address)
     # Convert the mock source to a mock data feed.
     {:ok, feed} = start_data_feed(mock)
     # Spawn a MockServer to get a connection on the port
@@ -69,8 +70,7 @@ defmodule MockServer do
     # Accept a connection to the listen socket
     {:ok, socket} = :gen_tcp.accept(listen_socket, timeout)
     # Release the listener port
-    {:ok, port} = :inet.port(listen_socket)
-    MockServer.ListenerPool.free(port)
+    MockServer.ListenerPool.free(listen_socket)
     # Enter the send/recv loop
     loop(feed, socket, timeout)
     :ok

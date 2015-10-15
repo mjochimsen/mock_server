@@ -53,7 +53,7 @@ and the actual received data.
 The following example shows a typical use of `MockServer` to pull a HTML page
 using a mock HTTP session.
 
-    assert {:ok, _pid, port} = MockServer.start(:http_index)
+    assert {:ok, _pid, port} = MockServer.start(:http_index, {127, 0, 0, 1})
     assert {:ok, client} = :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, {:active, false}])
     assert :ok = :gen_tcp.send(client, "GET /index.html HTTP/1.1\r\nHost: www.example.com\r\n\r\n")
     assert {:ok, index_html} = :gen_tcp.recv(client, 0)
@@ -96,11 +96,17 @@ Once `MockServer` has been added to the project, you will want to configure it
 for use in `config/config.exs`:
 
     config :mock_server,
+      addresses: [{127, 0, 0, 1}, {0, 0, 0, 0, 0, 0, 0, 1}],
       path: Path.join("test", "mocks"),
       ports: 5000..5009
 
 By default `MockServer` will look in `"test/mocks"` for mock files, but any
 other path may be specified.
+
+The default addresses are the IPv4 and IPv6 localhost addresses. If you are
+not running a dual stack machine, then only specify one address here. Non-
+localhost addresses may also be specified as long as a server connection can
+be made from the local machine.
 
 There is no default value provided for `ports`, so it must be specified or the
 application will halt on startup. `ports` may be either a single port number,

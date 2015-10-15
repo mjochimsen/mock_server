@@ -1,5 +1,11 @@
 defmodule MockServer.App do
 
+  # --- Constants ---
+
+  @localhost_addrs [{127, 0, 0, 1}, {0, 0, 0, 0, 0, 0, 0, 1}]
+
+  # --- Application callbacks ---
+
   use Application
 
   @doc """
@@ -18,9 +24,11 @@ defmodule MockServer.App do
   def start(_type, []) do
     import Supervisor.Spec
 
+    mock_server_addrs = Application.get_env(:mock_server, :addresses,
+                                            @localhost_addrs)
     mock_server_ports = Application.get_env(:mock_server, :ports, :no_ports)
     children = [
-      worker(MockServer.ListenerPool, [mock_server_ports]),
+      worker(MockServer.ListenerPool, [mock_server_addrs, mock_server_ports]),
       supervisor(MockServer.ServerSupervisor, [])
     ]
     opts = [strategy: :one_for_one, name: MockServer.Supervisor]
