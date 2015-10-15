@@ -14,6 +14,7 @@ defmodule TestHelper do
   def is_socket(socket) do
     case :inet.sockname(socket) do
       {:ok, {_address, port}} when is_integer(port) and port >= 0 -> true
+      _ -> false
     end
   end
 
